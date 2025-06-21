@@ -2,73 +2,140 @@ import streamlit as st
 import requests
 import PyPDF2
 import os
-from collections import Counter
 
-# ----- Streamlit UI -----
-st.set_page_config(page_title="Technical Preference Detector (GitHub + LinkedIn)", layout="centered")
+# -------- GitHub Analyzer -------- #
+def get_github_data(username):
+    url = f"https://api.github.com/users/{username}/repos"
+    headers = {"Accept": "application/vnd.github+json"}
+    response = requests.get(url, headers=headers)
 
-st.title("Technical Preference Detector (GitHub + LinkedIn PDF)")
+    if response.status_code != 200:
+        return []
+
+    repos = response.json()
+    repo_data = []
+    for repo in repos:
+        if isinstance(repo, dict):
+            repo_data.append({
+                "name": repo.get('name', ''),
+                "description": repo.get('description', ''),
+                "topics": repo.get('topics', []),
+                "language": repo.get('language', '')
+            })
+    return repo_data
+
+def extract_github_preferences(repos):
+    preferences = set()
+    for repo in repos:
+        description = repo.get('description', '') or ''
+        topics = repo.get('topics', [])
+        language = repo.get('language', '')
+
+        if 'machine' in description.lower() or 'ml' in description.lower():
+            preferences.add("AI/ML")
+        if 'web' in description.lower() or 'html' in description.lower():
+            preferences.add("Web Development")
+        if 'data' in description.lower():
+            preferences.add("Data Science")
+        if language:
+            preferences.add(language)
+
+        for topic in topics:
+            if topic.lower() in ['ai', 'ml', 'nlp']:
+                preferences.add("AI/ML")
+            elif topic.lower() in ['web', 'html', 'css', 'javascript']:
+                preferences.add("Web Development")
+            elif topic.lower() in ['data-science', 'analytics']:
+                preferences.add("Data Science")
+
+    return list(preferences)
+
+# -------- LinkedIn Analyzer -------- #
+def extract_text_from_pdf(uploaded_file):
+    pdf_reader = PyPDF2.PdfReader(uploaded_file)
+    text = ''
+    for page in pdf_reader.pages:
+        text += page.extract_text()
+    return text
+
+def extract_linkedin_preferences(text):
+    preferences = set()
+    text_lower = text.lower()
+
+    if 'machine learning' in text_lower or 'deep learning' in text_lower:
+        preferences.add("AI/ML")
+    if 'web development' in text_lower or 'html' in text_lower or 'css' in text_lower:
+        preferences.add("Web Development")
+    if 'data science' in text_lower or 'data analyst' in text_lower:
+        preferences.add("Data Science")
+    if 'cloud' in text_lower:
+        preferences.add("Cloud Computing")
+    if 'devops' in text_lower:
+        preferences.add("DevOps")
+    if 'android' in text_lower or 'ios' in text_lower:
+        preferences.add("Mobile Development")
+
+    return list(preferences)
+
+# -------- UI -------- #
+st.title(" Technical Preference Detector (GitHub + LinkedIn PDF)")
 
 # GitHub input
-st.header("GitHub Profile")
+st.subheader(" GitHub Profile")
 github_username = st.text_input("Enter GitHub Username")
 
-# LinkedIn input
-st.header("LinkedIn Profile PDF")
-uploaded_file = st.file_uploader("Upload a LinkedIn PDF", type=["pdf"], help="Limit 200MB per file • PDF")
+# LinkedIn PDF input (dropdown + upload)
+st.subheader(" LinkedIn Profile PDF")
+pdf_folder = "linkedin_pdfs"
+os.makedirs(pdf_folder, exist_ok=True)
 
-# ----- GitHub Preference Detection -----
-def analyze_github(username):
-    github_url = f"https://api.github.com/users/{username}/repos"
-    try:
-        response = requests.get(github_url)
-        if response.status_code != 200:
-            return None, "Could not fetch GitHub repos. Check username or API limit."
-        repos = response.json()
-        lang_counter = Counter()
-        for repo in repos:
-            lang_url = repo.get("languages_url")
-            lang_resp = requests.get(lang_url)
-            if lang_resp.status_code == 200:
-                lang_data = lang_resp.json()
-                lang_counter.update(lang_data)
-        return lang_counter, None
-    except Exception as e:
-        return None, str(e)
+existing_pdfs = [f for f in os.listdir(pdf_folder) if f.endswith(".pdf")]
+selected_pdf = st.selectbox("Select a LinkedIn PDF", options=["None"] + existing_pdfs)
 
-# ----- LinkedIn PDF Parsing -----
-def analyze_linkedin(pdf_file):
-    try:
-        pdf_reader = PyPDF2.PdfReader(pdf_file)
-        text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text()
-        keywords = ['Data Science', 'Web Development', 'Cloud Computing', 'Cybersecurity', 'AI', 'Machine Learning', 'DevOps', 'Mobile Development', 'AR/VR', 'Blockchain']
-        found_keywords = [kw for kw in keywords if kw.lower() in text.lower()]
-        return found_keywords
-    except Exception as e:
-        return [f"Error reading PDF: {str(e)}"]
+st.markdown("⬇Or upload a new LinkedIn profile:")
+uploaded_pdf = st.file_uploader("Upload a LinkedIn PDF", type="pdf")
 
-# ----- Results -----
-if github_username or uploaded_file:
+linkedin_prefs = []
+github_prefs = []
+
+if st.button("Detect Preferences"):
+    # GitHub Part
     if github_username:
-        st.subheader("Fetching GitHub data...")
-        github_prefs, error = analyze_github(github_username)
-        if error:
-            st.error(error)
-        elif github_prefs:
-            st.subheader("GitHub Preferences:")
-            sorted_langs = github_prefs.most_common()
-            for lang, count in sorted_langs:
-                st.write(f"{lang}: {count} bytes")
-            st.bar_chart(dict(sorted_langs))
-
-    if uploaded_file:
-        st.subheader(f"Analyzing LinkedIn file: {uploaded_file.name}")
-        linkedin_prefs = analyze_linkedin(uploaded_file)
-        st.subheader("LinkedIn Preferences:")
-        if linkedin_prefs:
-            for kw in linkedin_prefs:
-                st.write(kw)
+        st.info("Fetching GitHub data...")
+        repos = get_github_data(github_username.strip())
+        if repos:
+            github_prefs = extract_github_preferences(repos)
+            st.success("GitHub data loaded.")
         else:
-            st.info("No relevant tech keywords found in the PDF.")
+            st.warning("Could not fetch GitHub repos. Check username or API limit.")
+
+    # LinkedIn Part
+    if selected_pdf != "None":
+        st.info(f"Analyzing LinkedIn file: {selected_pdf}")
+        with open(os.path.join(pdf_folder, selected_pdf), "rb") as f:
+            text = extract_text_from_pdf(f)
+            linkedin_prefs = extract_linkedin_preferences(text)
+            st.success(f"PDF '{selected_pdf}' loaded.")
+    elif uploaded_pdf:
+        filepath = os.path.join(pdf_folder, uploaded_pdf.name)
+        with open(filepath, "wb") as f:
+            f.write(uploaded_pdf.read())
+        text = extract_text_from_pdf(open(filepath, "rb"))
+        linkedin_prefs = extract_linkedin_preferences(text)
+        st.success(f"PDF '{uploaded_pdf.name}' uploaded and loaded.")
+    else:
+        st.warning("No LinkedIn profile selected or uploaded.")
+
+    # Show results separately
+    if github_prefs:
+        st.subheader(" GitHub Preferences:")
+        for p in set(github_prefs):
+            st.markdown(f"- **{p}**")
+
+    if linkedin_prefs:
+        st.subheader(" LinkedIn Preferences:")
+        for p in set(linkedin_prefs):
+            st.markdown(f"- **{p}**")
+
+    if not github_prefs and not linkedin_prefs:
+        st.warning("No preferences detected.")
