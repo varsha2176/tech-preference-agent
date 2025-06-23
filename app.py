@@ -6,7 +6,10 @@ import os
 # -------- GitHub Analyzer -------- #
 def get_github_data(username):
     url = f"https://api.github.com/users/{username}/repos"
-    headers = {"Accept": "application/vnd.github+json"}
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {st.secrets['GITHUB_TOKEN']}"
+    }
     response = requests.get(url, headers=headers)
 
     if response.status_code != 200:
@@ -78,14 +81,14 @@ def extract_linkedin_preferences(text):
     return list(preferences)
 
 # -------- UI -------- #
-st.title(" Technical Preference Detector (GitHub + LinkedIn PDF)")
+st.title("Technical Preference Detector (GitHub + LinkedIn PDF)")
 
 # GitHub input
-st.subheader(" GitHub Profile")
+st.subheader("GitHub Profile")
 github_username = st.text_input("Enter GitHub Username")
 
-# LinkedIn PDF input (dropdown + upload)
-st.subheader(" LinkedIn Profile PDF")
+# LinkedIn PDF input
+st.subheader("LinkedIn Profile PDF")
 pdf_folder = "linkedin_pdfs"
 os.makedirs(pdf_folder, exist_ok=True)
 
@@ -99,7 +102,7 @@ linkedin_prefs = []
 github_prefs = []
 
 if st.button("Detect Preferences"):
-    # GitHub Part
+    # GitHub
     if github_username:
         st.info("Fetching GitHub data...")
         repos = get_github_data(github_username.strip())
@@ -109,7 +112,7 @@ if st.button("Detect Preferences"):
         else:
             st.warning("Could not fetch GitHub repos. Check username or API limit.")
 
-    # LinkedIn Part
+    # LinkedIn
     if selected_pdf != "None":
         st.info(f"Analyzing LinkedIn file: {selected_pdf}")
         with open(os.path.join(pdf_folder, selected_pdf), "rb") as f:
@@ -126,14 +129,14 @@ if st.button("Detect Preferences"):
     else:
         st.warning("No LinkedIn profile selected or uploaded.")
 
-    # Show results separately
+    # Output
     if github_prefs:
-        st.subheader(" GitHub Preferences:")
+        st.subheader("GitHub Preferences:")
         for p in set(github_prefs):
             st.markdown(f"- **{p}**")
 
     if linkedin_prefs:
-        st.subheader(" LinkedIn Preferences:")
+        st.subheader("LinkedIn Preferences:")
         for p in set(linkedin_prefs):
             st.markdown(f"- **{p}**")
 
